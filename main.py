@@ -1,15 +1,26 @@
 import random
 import time
 import datetime
+from datetime import datetime as dt
 import numpy as np
 import json
+import paho.mqtt.client as mqtt
 
-total_parking_spots = 300
-entrance_spots = [100, 200, 300]
-cars_spawn_min, cars_spawn_max = 0, 0
-car_park_time_min, car_park_time_max = 15, 140
-sim_time = "9:49AM"
-hour_ranges = {
+
+
+mqtt_endpoint = "iot.imei.uz.zgora.pl"
+mqtt_port = 1883
+mqtt_client_id = "zulQTT"
+mqtt_topic = "v1/devices/zulqtt"
+mqtt_publish_delay = 5 # Co ile sekund publikować dane do brokera
+
+total_parking_spots = 200 # Liczba miejsc parkingowych
+entrance_spots = [0, 100, 200] # Miejsca interesujące dla klientów
+cars_spawn_min, cars_spawn_max = 0, 0 
+car_park_time_min, car_park_time_max = 15, 140 # Czas parkowania w minutach
+sim_time = "7:00AM" # Czas rozpoczęcia symulacji
+sim_speed = 2 # Prędkość symulacji (większa = szybsza)
+hour_ranges = { # Zakresy godzin, w których zmienia się liczba samochodów wjeżdżających na parking
     range(0, 7): (0, 0),
     range(7, 9): (0, 3),
     range(9, 13): (0, 2),
@@ -26,7 +37,7 @@ car_brands = ["BMW", "Peugeot", "Toyota", "Ford", "Volkswagen", "Opel", "Citroen
               "Suzuki", "Alfa Romeo", "Rolls-Royce", "Maserati", "Porsche", "Volvo", "Jaguar", "Bentley", "Ferrari",
               "Lamborghini", "Bugatti"]
 car_colors = ["Red", "Blue", "Green", "Yellow", "Black", "White", "Silver", "Gray", "Brown", "Orange", "Purple"]
-brand_luxury_ranges = {
+brand_luxury_ranges = { # Zakresy luksusowości dla poszczególnych marek
     "BMW": (70, 100),
     "Mercedes-Benz": (80, 100),
     "Audi": (70, 90),
@@ -41,7 +52,6 @@ brand_luxury_ranges = {
     "Bugatti": (95, 100),
     "Cadillac": (70, 90),
 }
-
 
 class Car:
     def __init__(self, brand, color, luxury, exit_time):
@@ -124,6 +134,23 @@ parking_lot = ParkingLot(total_parking_spots)
 
 # Simulate parking for 600 ticks (each tick represents 1 second)
 tick_count = 0
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+    client.publish(mqtt_topic, json.dumps({'time_connected': str(dt.now())}), 0, True);
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
+
+client = mqtt.Client(mqtt_client_id)
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect(mqtt_endpoint, mqtt_port, 60)
+
+client.loop_start()
+
 while True:
     json_parking = {"parked_cars": [], "popularity": [], "time": ""}
     for spot in range(len(parking_lot.spots)):
@@ -139,6 +166,8 @@ while True:
             })
     json_parking['popularity'] = parking_lot.popularity
     json_parking['time'] = str(sim_time)
+    # print(json.dumps(json_parking, indent=4))
+
 
     print(f"\n{sim_time} {'-' * 48}")
     # Increment time by 1 minute (1 second of simulation time)
@@ -173,13 +202,14 @@ while True:
             print("Parking lot is full, car couldn't be parked")
 
     # Print status of parking lot every 10 seconds
-    if tick_count % 10 == 0:
+    if tick_count % mqtt_publish_delay == 0:
         occupancy = ["\033[91m-\033[0m" if spot is None else "\033[92mX\033[0m" for spot in parking_lot.spots]
         for i in range(0, len(occupancy), 100):
             print("".join(occupancy[i:i + 100]))
         print(parking_lot)
+        client.publish("v1/devices/zulqtt", json.dumps(json_parking), 0 , True);
 
     # Decrement exit time and tick counter
     parking_lot.tick()
     tick_count += 1
-    time.sleep(1)
+    time.sleep(1 / sim_speed)
