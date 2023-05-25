@@ -4,29 +4,30 @@ import datetime
 from datetime import datetime as dt
 import numpy as np
 import json
+import pytz
+import requests
 import paho.mqtt.client as mqtt
 
 mqtt_endpoint = "iot.imei.uz.zgora.pl"
 mqtt_port = 1883
 mqtt_client_id = "zulQTT"
 mqtt_topic = "v1/devices/zulqtt"
-mqtt_publish_delay = 5 # Co ile sekund publikować dane do brokera
+mqtt_publish_delay = 5 # Co ile ticków publikować dane do brokera
 
 total_parking_spots = 200 # Liczba miejsc parkingowych
 entrance_spots = [0, 100, 200] # Miejsca interesujące dla klientów
 cars_spawn_min, cars_spawn_max = 0, 0 
 car_park_time_min, car_park_time_max = 15, 140 # Czas parkowania w minutach
-sim_time = "7:00AM" # Czas rozpoczęcia symulacji
+sim_time = "9:00:00" # Czas rozpoczęcia symulacji
 sim_speed = 5 # Prędkość symulacji (większa = szybsza)
-hour_ranges = { # Zakresy godzin, w których zmienia się liczba samochodów wjeżdżających na parking
-    range(0, 7): (0, 0),
-    range(7, 9): (0, 3),
-    range(9, 13): (0, 2),
-    range(13, 15): (0, 3),
-    range(15, 18): (2, 6),
-    range(18, 20): (0, 3),
-    range(20, 23): (0, 2),
-    range(23, 25): (0, 0)
+hour_ranges = {
+    range(0, 8): (0, 0),
+    range(8, 10): (0, 3),
+    range(10, 14): (0, 2),
+    range(14, 16): (0, 3),
+    range(16, 19): (2, 6),
+    range(19, 21): (0, 3),
+    range(21, 24): (0, 2),
 }
 car_brands = ["BMW", "Peugeot", "Toyota", "Ford", "Volkswagen", "Opel", "Citroen", "Seat", "Renault", "Audi", "Honda",
               "Nissan", "Mercedes-Benz",
@@ -50,6 +51,10 @@ brand_luxury_ranges = { # Zakresy luksusowości dla poszczególnych marek
     "Bugatti": (95, 100),
     "Cadillac": (70, 90),
 }
+
+
+cars_arrived = []
+cars_removed = []
 
 class Car:
     def __init__(self, brand, color, luxury, exit_time):
@@ -98,13 +103,15 @@ class ParkingLot:
                 spot = i
                 break
 
-        self.spots[spot] = car
-        self.popularity[spot] += 1
+        self.spots[spot] = car # Park car at spot
+        self.popularity[spot] += 1 # Increase popularity of spot 
+        cars_arrived.append(car) # Add car to arrived cars list
         print(f"\033[92m→ {car} parked at spot {spot}\033[0m")
 
     def remove(self, spot):
-        car = self.spots[spot]
-        self.spots[spot] = None
+        car = self.spots[spot] # Get car from spot
+        self.spots[spot] = None # Remove car from spot
+        cars_removed.append(car) # Add car to removed cars list
         print(f"\033[91m← {car} removed from spot {spot}\033[0m")
         return car
 
@@ -127,6 +134,13 @@ class ParkingLot:
     def __repr__(self):
         return f"Parking lot with {self.num_spots} spots, {sum(spot is not None for spot in self.spots)} cars parked"
 
+def set_car_spawn_range(hour_ranges, current_hour):
+    for hour_range, spawn_range in hour_ranges.items():
+        if current_hour in hour_range:
+            return spawn_range
+
+    # If the current hour doesn't match any range, return default values
+    return 0, 0
 
 # Create parking lot
 parking_lot = ParkingLot(total_parking_spots)
@@ -142,45 +156,30 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     print(msg.topic+" "+str(msg.payload))
 
-client = mqtt.Client(mqtt_client_id)
+client = mqtt.Client()
+client.username_pw_set("030201zul")
 client.on_connect = on_connect
 client.on_message = on_message
 
 client.connect(mqtt_endpoint, mqtt_port, 60)
 
+# send post request to reset earned money
+requests.post("http://iot.imei.uz.zgora.pl/api/v1/030201zul/telemetry", json={"money_total": 0})
+
 client.loop_start()
 
 while True:
-    json_parking = {"parked_cars": [], "popularity": [], "time": ""}
-    for spot in range(len(parking_lot.spots)):
-        # print(spot)
-        if parking_lot.spots[spot] is not None:
-            json_parking['parked_cars'].append({
-                "brand": parking_lot.spots[spot].brand,
-                "color": parking_lot.spots[spot].color,
-                "luxury": int(parking_lot.spots[spot].luxury),
-                "spot": int(spot),
-                "is_good_parking": bool(parking_lot.spots[spot].is_good_parking),
-                "exit_time": int(parking_lot.spots[spot].exit_time),
-                "time_desired": int(parking_lot.spots[spot].time_desired)
-            })
-    json_parking['popularity'] = parking_lot.popularity
-    json_parking['time'] = str(sim_time)
-    # print(json.dumps(json_parking, indent=4))
-
-
     print(f"\n{sim_time} {'-' * 48}")
     # Increment time by 1 minute (1 second of simulation time)
-    sim_time = (datetime.datetime.strptime(sim_time, "%I:%M%p") + datetime.timedelta(minutes=1)).strftime("%I:%M%p")
-
-    # Determine rush hours and adjust car spawn rate accordingly
-    for hour_range, (cars_spawn_min, cars_spawn_max) in hour_ranges.items():
-        if datetime.datetime.strptime(sim_time, "%I:%M%p").hour in hour_range:
-            break
+    sim_time = (datetime.datetime.strptime(sim_time, "%H:%M:%S") + datetime.timedelta(minutes=1)).strftime("%H:%M:%S")
 
     # Allow cars to enter the parking lot
-    num_spots_to_fill = min(random.randint(cars_spawn_min, cars_spawn_max),
-                            parking_lot.num_spots - sum(spot is not None for spot in parking_lot.spots))
+    current_hour = int(sim_time.split(':')[0])
+
+    cars_spawn_min, cars_spawn_max = set_car_spawn_range(hour_ranges, current_hour)
+    available_spots = parking_lot.num_spots - sum(spot is not None for spot in parking_lot.spots)
+    num_spots_to_fill = min(random.randint(cars_spawn_min, cars_spawn_max), available_spots) if available_spots > 0 else 0
+
     for i in range(num_spots_to_fill):
         brand = random.choice(car_brands)
         brand_luxury_range = brand_luxury_ranges.get(brand, (20, 100))
@@ -201,7 +200,33 @@ while True:
         except:
             print("Parking lot is full, car couldn't be parked")
 
-    # Print status of parking lot every 10 seconds
+    
+    json_parking = {
+                "parked_cars": [],
+                "popularity": parking_lot.popularity,
+                "cars_arrived": [],
+                "cars_removed": [],
+                "time": str(sim_time)
+            }
+    for spot in range(len(parking_lot.spots)):
+        # print(spot)
+        if parking_lot.spots[spot] is not None:
+            json_parking['parked_cars'].append({
+                "brand": parking_lot.spots[spot].brand,
+                "color": parking_lot.spots[spot].color,
+                "luxury": int(parking_lot.spots[spot].luxury),
+                "spot": int(spot),
+                "is_good_parking": bool(parking_lot.spots[spot].is_good_parking),
+                "exit_time": int(parking_lot.spots[spot].exit_time),
+                "time_desired": int(parking_lot.spots[spot].time_desired)
+            })
+            json_parking['cars_arrived'] = [{"brand": car.brand, "color": car.color, "luxury": car.luxury, "spot": int(spot), "spent_time" : int(car.time_desired)} for car in cars_arrived]
+            json_parking['cars_removed'] = [{"brand": car.brand, "color": car.color, "luxury": car.luxury, "spot": int(spot), "spent_time" : int(car.time_desired)} for car in cars_removed]
+    cars_arrived = []
+    cars_removed = []
+    # print(json.dumps(json_parking, indent=4))
+
+    # Print status of parking lot every x ticks
     if tick_count % mqtt_publish_delay == 0:
         occupancy = ["\033[91m-\033[0m" if spot is None else "\033[92mX\033[0m" for spot in parking_lot.spots]
         for i in range(0, len(occupancy), 100):
