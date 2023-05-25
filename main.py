@@ -6,8 +6,6 @@ import numpy as np
 import json
 import paho.mqtt.client as mqtt
 
-
-
 mqtt_endpoint = "iot.imei.uz.zgora.pl"
 mqtt_port = 1883
 mqtt_client_id = "zulQTT"
@@ -19,7 +17,7 @@ entrance_spots = [0, 100, 200] # Miejsca interesujące dla klientów
 cars_spawn_min, cars_spawn_max = 0, 0 
 car_park_time_min, car_park_time_max = 15, 140 # Czas parkowania w minutach
 sim_time = "7:00AM" # Czas rozpoczęcia symulacji
-sim_speed = 2 # Prędkość symulacji (większa = szybsza)
+sim_speed = 5 # Prędkość symulacji (większa = szybsza)
 hour_ranges = { # Zakresy godzin, w których zmienia się liczba samochodów wjeżdżających na parking
     range(0, 7): (0, 0),
     range(7, 9): (0, 3),
@@ -59,6 +57,7 @@ class Car:
         self.color = color
         self.luxury = luxury
         self.exit_time = exit_time
+        self.time_desired = exit_time
         self.is_good_parking = np.random.choice([1,0], p=[0.8, 0.2])
 
     def __repr__(self):
@@ -163,6 +162,7 @@ while True:
                 "spot": int(spot),
                 "is_good_parking": bool(parking_lot.spots[spot].is_good_parking),
                 "exit_time": int(parking_lot.spots[spot].exit_time),
+                "time_desired": int(parking_lot.spots[spot].time_desired)
             })
     json_parking['popularity'] = parking_lot.popularity
     json_parking['time'] = str(sim_time)
