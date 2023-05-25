@@ -22,7 +22,7 @@ car_park_time_min, car_park_time_max = 15, 140 # Czas parkowania w minutach
 timezone = pytz.timezone('Europe/Warsaw')
 
 hour_ranges = {
-    range(0, 25): (0, 1)
+    range(0, 25): (0, 4)
 }
 car_brands = ["BMW", "Peugeot", "Toyota", "Ford", "Volkswagen", "Opel", "Citroen", "Seat", "Renault", "Audi", "Honda",
               "Nissan", "Mercedes-Benz",
@@ -163,7 +163,7 @@ while True:
         print(current_time)
         previous_time = current_time
         # every 10 seconds check if there are any cars to remove and add new cars
-        if int(current_time.split(":")[2]) % 10 == 0:
+        if int(current_time.split(":")[2]) % 60 == 0:
             # Allow cars to enter the parking lot based on the hour range
             hour = datetime.datetime.now(timezone).hour
             for hour_range, (cars_spawn_min, cars_spawn_max) in hour_ranges.items():
