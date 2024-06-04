@@ -4,15 +4,15 @@ import datetime
 from datetime import datetime as dt
 import numpy as np
 import json
-import pytz
 import requests
 import paho.mqtt.client as mqtt
 
-mqtt_endpoint = "iot.imei.uz.zgora.pl"
+mqtt_endpoint = "#"
 mqtt_port = 1883
-mqtt_client_id = "zulQTT"
-mqtt_topic = "v1/devices/zulqtt"
+mqtt_client_id = "#"
+mqtt_topic = "#"
 mqtt_publish_delay = 5 # Co ile ticków publikować dane do brokera
+mqtt_connect = False
 
 total_parking_spots = 200 # Liczba miejsc parkingowych
 entrance_spots = [0, 100, 200] # Miejsca interesujące dla klientów
@@ -156,17 +156,18 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     print(msg.topic+" "+str(msg.payload))
 
-client = mqtt.Client()
-client.username_pw_set("030201zul")
-client.on_connect = on_connect
-client.on_message = on_message
+if mqtt_connect:
+  client = mqtt.Client()
+  client.username_pw_set("030201zul")
+  client.on_connect = on_connect
+  client.on_message = on_message
 
-client.connect(mqtt_endpoint, mqtt_port, 60)
+  client.connect(mqtt_endpoint, mqtt_port, 60)
 
-# send post request to reset earned money
-requests.post("http://iot.imei.uz.zgora.pl/api/v1/030201zul/telemetry", json={"money_total": 0})
+  # send post request to reset earned money
+  requests.post("http://iot.imei.uz.zgora.pl/api/v1/030201zul/telemetry", json={"money_total": 0})
 
-client.loop_start()
+  client.loop_start()
 
 while True:
     print(f"\n{sim_time} {'-' * 48}")
@@ -232,7 +233,8 @@ while True:
         for i in range(0, len(occupancy), 100):
             print("".join(occupancy[i:i + 100]))
         print(parking_lot)
-        client.publish("v1/devices/zulqtt", json.dumps(json_parking), 0 , True);
+        if mqtt_connect:
+          client.publish("v1/devices/zulqtt", json.dumps(json_parking), 0 , True);
 
     # Decrement exit time and tick counter
     parking_lot.tick()
